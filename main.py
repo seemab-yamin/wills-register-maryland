@@ -5,7 +5,7 @@ import pandas as pd
 from datetime import datetime
 import time
 
-from utils import get_parameters, get_html, scrap_page, scrap_single
+from utils import get_parameters, get_html, scrape_page, scrape_single
 
 from PyQt5.QtCore import QDate, Qt
 from PyQt5.QtWidgets import (
