@@ -274,7 +274,7 @@ def get_location_parts(location_string):
     return parts
 
 
-def scrap_single(item_url):
+def scrape_single(item_url):
     """
     Scrapes a single estate detail page, extracts all information,
     and appends it as one or more rows to a CSV file.
