@@ -226,13 +226,13 @@ class MDScraperApp(QMainWindow):
         parameters = get_parameters(soup, counter)
         case_urls = set()
 
-        new_parameters, case_urls = scrap_page(
+        new_parameters, case_urls = scrape_page(
             parameters, case_urls, date_from, date_to, party_type, counter
         )
         counter += 1
 
         while new_parameters:
-            new_parameters, case_urls = scrap_page(
+            new_parameters, case_urls = scrape_page(
                 new_parameters, case_urls, date_from, date_to, party_type, counter
             )
             counter += 1
