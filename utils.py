@@ -184,7 +184,7 @@ def post_request(parameters, date_from, date_to, party_type, counter):
         return None
 
 
-def scrap_page(parameters, case_urls, date_from, date_to, party_type, counter):
+def scrape_page(parameters, case_urls, date_from, date_to, party_type, counter):
     """
     Scrapes a single page of search results, extracts detail page URLs,
     and gets the form parameters needed for the next page.
