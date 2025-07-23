@@ -29,7 +29,8 @@ def get_html(url: str):
     }
 
     try:
-        # Suppress the InsecureRequestWarning because SSL verification is turned off
+        # Log and suppress the InsecureRequestWarning because SSL verification is turned off
+        logging.warning("Suppressing InsecureRequestWarning: SSL verification is disabled for this request.")
         warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
         response = requests.get(
