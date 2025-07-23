@@ -243,7 +243,7 @@ class MDScraperApp(QMainWindow):
 
         for idx, url in enumerate(case_urls, 1):
             print(f"Processing {idx} of {total}: {url}")
-            master_list.extend(scrap_single(url))
+            master_list.extend(scrape_single(url))
             time.sleep(0.5)
             # Print current progress percentage
             print(f"Progress: {int((idx / total) * 100)}%")
