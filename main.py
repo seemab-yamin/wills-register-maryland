@@ -8,6 +8,7 @@ import time
 
 from utils import get_parameters, get_html, scrape_page, scrape_single, setup_logging
 
+from PyQt5.QtCore import QDate
 from PyQt5.QtWidgets import (
     QApplication,
     QComboBox,
