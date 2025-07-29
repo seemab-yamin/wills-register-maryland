@@ -3,6 +3,52 @@ from bs4 import BeautifulSoup, Tag
 from urllib.parse import urljoin
 import re
 import warnings
+import logging
+from logging.handlers import RotatingFileHandler
+
+
+def setup_logging():
+    """
+    Sets up logging configuration for the application.
+
+    Configures:
+    - Console handler for INFO level and above
+    - File handler with rotation (5MB max, 3 backups)
+    - Consistent log format
+    - Root logger level set to INFO
+    """
+    # Create formatter
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+
+    # Create console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+
+    # Create file handler with rotation
+    file_handler = RotatingFileHandler(
+        "app.log", maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+    )
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    # Remove any existing handlers to avoid duplicates
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Add handlers
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
+
+    # Log the setup completion
+    logger = logging.getLogger(__name__)
+    logger.info("Logging setup completed")
 
 
 def get_html(url: str):
@@ -15,6 +61,9 @@ def get_html(url: str):
     Returns:
         A BeautifulSoup object representing the parsed HTML, or None if an error occurs.
     """
+    logger = logging.getLogger(__name__)
+    logger.debug(f"Fetching HTML from URL: {url}")
+
     # In requests, headers are passed as a dictionary.
     # The 'User-Agent' and 'Referer' from curl_setopt are also moved here.
     headers = {
@@ -30,7 +79,9 @@ def get_html(url: str):
 
     try:
         # Log and suppress the InsecureRequestWarning because SSL verification is turned off
-        logging.warning("Suppressing InsecureRequestWarning: SSL verification is disabled for this request.")
+        logger.warning(
+            "Suppressing InsecureRequestWarning: SSL verification is disabled for this request."
+        )
         warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
         response = requests.get(
@@ -42,11 +93,12 @@ def get_html(url: str):
         )
         # Check if the request was successful (status code 2xx)
         response.raise_for_status()
+        logger.debug(f"Successfully fetched HTML from {url}")
         return response.text
 
     except requests.exceptions.RequestException as e:
         # This catches connection errors, timeouts, invalid URLs, etc.
-        print(f"Request error: {e}")
+        logger.error(f"Request error for {url}: {e}")
         return None
 
 
@@ -65,6 +117,9 @@ def get_parameters(soup, counter):
               'eventvalidation', and 'page_number'. Returns an empty dictionary
               if the required parameters are not found or if pagination has ended.
     """
+    logger = logging.getLogger(__name__)
+    logger.debug(f"Extracting parameters from page (counter: {counter})")
+
     try:
         # Extract the hidden form field values needed for the next request.
         # Using .get('value', '') is safer in case a tag is found but has no value.
@@ -80,6 +135,7 @@ def get_parameters(soup, counter):
     except AttributeError:
         # This occurs if one of the find() calls returns None (tag not found).
         # It indicates an invalid page or the end of scraping.
+        logger.warning(f"Failed to extract form parameters (counter: {counter})")
         return {}
 
     page_number = ""
@@ -110,8 +166,12 @@ def get_parameters(soup, counter):
     # If this isn't the first request AND we didn't find a next page link,
     # it means we are on the last page. Return empty dict to stop the loop.
     if counter > 1 and not page_number:
+        logger.info(f"Reached end of pagination (counter: {counter})")
         return {}
 
+    logger.debug(
+        f"Successfully extracted parameters (counter: {counter}, page_number: {page_number})"
+    )
     return parameters
 
 
@@ -131,6 +191,9 @@ def post_request(parameters, date_from, date_to, party_type, counter):
     Returns:
         str: The HTML content of the response.
     """
+    logger = logging.getLogger(__name__)
+    logger.debug(f"Sending POST request (counter: {counter})")
+
     url = "https://registers.maryland.gov/RowNetWeb/Estates/frmEstateSearch2.aspx"
 
     headers = {
@@ -157,6 +220,9 @@ def post_request(parameters, date_from, date_to, party_type, counter):
             "cboPartyType": party_type,
             "cmdSearch": "Search",
         }
+        logger.debug(
+            f"Initial search payload - Date range: {date_from} to {date_to}, Party type: {party_type}"
+        )
     else:
         # Payload for pagination
         payload = {
@@ -166,6 +232,7 @@ def post_request(parameters, date_from, date_to, party_type, counter):
             "__VIEWSTATEGENERATOR": parameters["viewstategenerator"],
             "__EVENTVALIDATION": parameters["eventvalidation"],
         }
+        logger.debug(f"Pagination payload - Page number: {parameters['page_number']}")
 
     try:
         # requests.post handles URL encoding of the payload dictionary
@@ -177,11 +244,12 @@ def post_request(parameters, date_from, date_to, party_type, counter):
             timeout=20,  # Equivalent to CURLOPT_CONNECTTIMEOUT
         )
         response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
+        logger.debug(f"POST request successful (counter: {counter})")
         return (
             response.text
         )  # Returns the raw HTML, similar to what str_get_html() would parse
     except requests.exceptions.RequestException as e:
-        print(f"An error occurred: {e}")
+        logger.error(f"POST request failed (counter: {counter}): {e}")
         return None
 
 
@@ -205,11 +273,14 @@ def scrape_page(parameters, case_urls, date_from, date_to, party_type, counter):
                                       Returns an empty dict if scraping is complete or fails.
                updated_case_urls (set): The updated set of scraped URLs.
     """
+    logger = logging.getLogger(__name__)
+    logger.debug(f"Scraping page (counter: {counter})")
+
     raw_html = post_request(parameters, date_from, date_to, party_type, counter)
 
     if not raw_html:
         # If the request failed, return empty params and the original URL set
-        print("Failed to fetch HTML content.")
+        logger.error(f"Failed to fetch HTML content (counter: {counter})")
         return {}, case_urls
 
     soup = BeautifulSoup(raw_html, "html.parser")
@@ -284,11 +355,13 @@ def scrape_single(item_url):
         item_url (str): The URL of the detail page to scrape.
         output_filepath (str): The path to the CSV file to append data to.
     """
+    logger = logging.getLogger(__name__)
+    logger.debug(f"Scraping single item: {item_url}")
 
     master_data = []
     raw_html = get_html(item_url)
     if not raw_html:
-        print(f"Skipping {item_url} due to fetch error.")
+        logger.error(f"Failed to fetch HTML for {item_url}")
         return {
             "case": "",
             "time": "",
@@ -441,4 +514,6 @@ def scrape_single(item_url):
             "item_url": case_data["item_url"],
         }
         master_data.append(row)  # Append to the master data list
+
+    logger.debug(f"Successfully scraped {len(master_data)} records from {item_url}")
     return master_data
