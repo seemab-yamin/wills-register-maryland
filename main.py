@@ -1,13 +1,13 @@
 import os
 import sys
+import logging
 from bs4 import BeautifulSoup
 import pandas as pd
 from datetime import datetime
 import time
 
-from utils import get_parameters, get_html, scrape_page, scrape_single
+from utils import get_parameters, get_html, scrape_page, scrape_single, setup_logging
 
-from PyQt5.QtCore import QDate, Qt
 from PyQt5.QtWidgets import (
     QApplication,
     QComboBox,
@@ -31,6 +31,10 @@ class MDScraperApp(QMainWindow):
         self.setFixedSize(500, 300)
         self._close_enabled = True
 
+        # Setup logging for this application
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("MDScraperApp initialized")
+
         # Central widget and main layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -43,6 +47,8 @@ class MDScraperApp(QMainWindow):
         self.create_type_widgets(main_layout)
         self.create_output_widgets(main_layout)
         self.create_action_buttons(main_layout)
+
+        self.logger.info("UI components created successfully")
 
     def create_date_widgets(self, layout):
         # Date range section
@@ -115,6 +121,7 @@ class MDScraperApp(QMainWindow):
         layout.addLayout(btn_layout)
 
     def confirm_exit(self):
+        self.logger.info("User requested exit - showing confirmation dialog")
         reply = QMessageBox.question(
             self,
             "Confirm Exit",
@@ -123,16 +130,19 @@ class MDScraperApp(QMainWindow):
             QMessageBox.No,
         )
         if reply == QMessageBox.Yes:
+            self.logger.info("User confirmed exit - shutting down application")
             QApplication.instance().quit()
 
     def set_close_enabled(self, enabled):
         # Enable/disable window close button and Exit button
         self.exit_btn.setEnabled(enabled)
         self._close_enabled = enabled
+        self.logger.debug(f"Close functionality {'enabled' if enabled else 'disabled'}")
 
     def closeEvent(self, event):
         if hasattr(self, "_close_enabled") and not self._close_enabled:
             event.ignore()
+            self.logger.warning("Close attempt blocked - process is running")
             QMessageBox.warning(
                 self, "Action Blocked", "Cannot close while process is running."
             )
@@ -145,11 +155,14 @@ class MDScraperApp(QMainWindow):
                 QMessageBox.No,
             )
             if reply == QMessageBox.Yes:
+                self.logger.info("User confirmed exit via window close button")
                 event.accept()
             else:
+                self.logger.debug("User cancelled exit via window close button")
                 event.ignore()
 
     def select_directory(self):
+        self.logger.debug("Opening directory selection dialog")
         directory = QFileDialog.getExistingDirectory(
             self,
             "Select Output Directory",
@@ -158,23 +171,30 @@ class MDScraperApp(QMainWindow):
         )
         if directory:
             self.dir_input.setText(directory)
+            self.logger.info(f"Selected output directory: {directory}")
+        else:
+            self.logger.debug("No directory selected")
 
     def validate_inputs(self):
         if not self.dir_input.text():
+            self.logger.warning("Validation failed: No output directory selected")
             QMessageBox.warning(
                 self, "Missing Directory", "Please select an output directory"
             )
             return False
 
         if self.from_date.date() > self.to_date.date():
+            self.logger.warning("Validation failed: Invalid date range")
             QMessageBox.warning(
                 self, "Invalid Date Range", "From date cannot be after To date"
             )
             return False
 
+        self.logger.debug("Input validation passed")
         return True
 
     def start_process(self):
+        self.logger.info("Starting scraping process")
         if not self.validate_inputs():
             return
 
@@ -188,6 +208,10 @@ class MDScraperApp(QMainWindow):
         self.date_to = self.to_date.date().toString("MM/dd/yyyy")
         self.party_type = self.doc_type.currentText()
 
+        self.logger.info(
+            f"Scraping parameters - Date range: {self.date_from} to {self.date_to}, Party type: {self.party_type}"
+        )
+
         # Scrape the data
         master_list = self.scraping(self.date_from, self.date_to, self.party_type)
         if master_list:
@@ -197,8 +221,10 @@ class MDScraperApp(QMainWindow):
 
             df = pd.DataFrame(master_list)
             df.to_excel(output_path, index=False)
+            self.logger.info(f"Excel file generated successfully: {output_path}")
             info_text = f"Excel generated successfully at:\n{output_path}"
         else:
+            self.logger.error("Scraping failed - no data collected")
             info_text = (
                 "Scraping failed. Please check your internet connection and try again."
             )
@@ -214,13 +240,15 @@ class MDScraperApp(QMainWindow):
         self.set_close_enabled(True)
         self.start_btn.setEnabled(True)
         self.reset_btn.setEnabled(True)
+        self.logger.info("Scraping process completed")
 
     def scraping(self, date_from, date_to, party_type):
+        self.logger.info("Starting scraping operation")
         counter = 1
         url = "https://registers.maryland.gov/RowNetWeb/Estates/frmEstateSearch2.aspx"
         raw_html = get_html(url)
         if not raw_html:
-            print("Failed to make request for fetching parameters.")
+            self.logger.error("Failed to make request for fetching parameters")
             return []
         soup = BeautifulSoup(raw_html, "html.parser")
         parameters = get_parameters(soup, counter)
@@ -232,25 +260,29 @@ class MDScraperApp(QMainWindow):
         counter += 1
 
         while new_parameters:
+            self.logger.debug(f"Processing page {counter}")
             new_parameters, case_urls = scrape_page(
                 new_parameters, case_urls, date_from, date_to, party_type, counter
             )
             counter += 1
 
-        print(f"Total case URLs collected: {len(case_urls)}")
+        self.logger.info(f"Total case URLs collected: {len(case_urls)}")
         master_list = []
         total = len(case_urls)
 
         for idx, url in enumerate(case_urls, 1):
-            print(f"Processing {idx} of {total}: {url}")
+            self.logger.info(f"Processing {idx} of {total}: {url}")
             master_list.extend(scrape_single(url))
             time.sleep(0.5)
-            # Print current progress percentage
-            print(f"Progress: {int((idx / total) * 100)}%")
+            # Log current progress percentage
+            progress = int((idx / total) * 100)
+            self.logger.debug(f"Progress: {progress}%")
 
+        self.logger.info(f"Scraping completed - {len(master_list)} records collected")
         return master_list
 
     def reset_form(self):
+        self.logger.info("Resetting form to default values")
         # Reset date fields
         self.from_date.setDate(QDate.currentDate().addMonths(-1))
         self.to_date.setDate(QDate.currentDate())
@@ -265,10 +297,17 @@ class MDScraperApp(QMainWindow):
         self.set_close_enabled(True)
         self.start_btn.setEnabled(True)
         self.reset_btn.setEnabled(True)
+        self.logger.info("Form reset completed")
 
 
 if __name__ == "__main__":
+    # Setup logging before creating the application
+    setup_logging()
+    logger = logging.getLogger(__name__)
+    logger.info("Starting MDScraperApp")
+
     app = QApplication(sys.argv)
     window = MDScraperApp()
     window.show()
+    logger.info("Application window displayed")
     sys.exit(app.exec_())
