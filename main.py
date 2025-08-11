@@ -60,6 +60,7 @@ class MDScraperApp(QMainWindow):
         from_layout.addWidget(QLabel("From Date:"))
         self.from_date = QDateEdit()
         self.from_date.setCalendarPopup(True)
+        self.from_date.setDisplayFormat("MM/dd/yyyy")
         self.from_date.setDate(QDate.currentDate().addMonths(-1))
         from_layout.addWidget(self.from_date)
 
@@ -68,6 +69,7 @@ class MDScraperApp(QMainWindow):
         to_layout.addWidget(QLabel("To Date:"))
         self.to_date = QDateEdit()
         self.to_date.setCalendarPopup(True)
+        self.to_date.setDisplayFormat("MM/dd/yyyy")
         self.to_date.setDate(QDate.currentDate())
         to_layout.addWidget(self.to_date)
 
