@@ -223,6 +223,103 @@ class MDScraperApp(QMainWindow):
             output_path = os.path.join(self.dir_input.text(), filename)
 
             df = pd.DataFrame(master_list)
+            column_rename = {
+                "case": "Court File Number",
+                "county": "County",
+                "date_of_death": "Date of Death",
+                "decedent": "Decedent",
+            }
+
+            df.rename(columns=column_rename, inplace=True)
+            df["Date of Death"] = pd.to_datetime(df["Date of Death"], errors="coerce")
+            df["Date of Death"] = df["Date of Death"].dt.strftime("%B %d,%Y")
+
+            final_columns = [
+                "Fiduciary Number",
+                "Court File Number",
+                "County",
+                "Decedent",
+                "Date of Death",
+                "Executor",
+                "Administrator",
+                "Proponent of Will",
+                "Subscriber",
+                "Heir 1",
+                "Relationship 1",
+                "Age 1",
+                "Address 1",
+                "Heir 2",
+                "Relationship 2",
+                "Age 2",
+                "Address 2",
+                "Heir 3",
+                "Relationship 3",
+                "Age 3",
+                "Address 3",
+                "Heir 4",
+                "Relationship 4",
+                "Age 4",
+                "Address 4",
+                "Heir 5",
+                "Relationship 5",
+                "Age 5",
+                "Address 5",
+                "Heir 6",
+                "Relationship 6",
+                "Age 6",
+                "Address 6",
+                "Heir 7",
+                "Relationship 7",
+                "Age 7",
+                "Address 7",
+                "Heir 8",
+                "Relationship 8",
+                "Age 8",
+                "Address 8",
+                "Heir 9",
+                "Relationship 9",
+                "Age 9",
+                "Address 9",
+                "Heir 10",
+                "Relationship 10",
+                "Age 10",
+                "Address 10",
+                "Heir 11",
+                "Relationship 11",
+                "Age 11",
+                "Address 11",
+                "Heir 12",
+                "Relationship 12",
+                "Age 12",
+                "Address 12",
+                "Heir 13",
+                "Relationship 13",
+                "Age 13",
+                "Address 13",
+                "Heir 14",
+                "Relationship 14",
+                "Age 14",
+                "Address 14",
+                "Heir 15",
+                "Relationship 15",
+                "Age 15",
+                "Address 15",
+                "Heir 16",
+                "Relationship 16",
+                "Age 16",
+                "Address 16",
+                "Heir 17",
+                "Relationship 17",
+                "Age 17",
+                "Address 17",
+            ]
+            missing_columns = set(final_columns) - set(df.columns)
+            if missing_columns:
+                # add missing columns with NaN values
+                for col in missing_columns:
+                    df[col] = pd.NA
+
+            df = df[final_columns]
             df.to_excel(output_path, index=False)
             self.logger.info(f"Excel file generated successfully: {output_path}")
             info_text = f"Excel generated successfully at:\n{output_path}"
@@ -269,6 +366,8 @@ class MDScraperApp(QMainWindow):
             )
             counter += 1
 
+        # TODO
+        case_urls = list(case_urls)[:5]
         self.logger.info(f"Total case URLs collected: {len(case_urls)}")
         master_list = []
         total = len(case_urls)

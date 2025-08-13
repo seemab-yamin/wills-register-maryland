@@ -382,8 +382,8 @@ def scrape_single(item_url):
             "attorney_city": "",
             "attorney_state": "",
             "attorney_zip": "",
-            "descendent": "",
-            "descendent_alias": "",
+            "decedent": "",
+            "decedent_alias": "",
             "item_url": "",
         }
     soup = BeautifulSoup(raw_html, "html.parser")
@@ -395,8 +395,8 @@ def scrape_single(item_url):
         "date_of_death": get_element_text(soup, "#lblDateOfDeath"),
         "type": get_element_text(soup, "#lblType"),
         "status": get_element_text(soup, "#lblStatus"),
-        "descendent": get_element_text(soup, "#lblName"),
-        "descendent_alias": get_element_text(soup, "#lblAliases"),
+        "decedent": get_element_text(soup, "#lblName"),
+        "decedent_alias": get_element_text(soup, "#lblAliases"),
         "item_url": item_url,
     }
 
@@ -482,8 +482,8 @@ def scrape_single(item_url):
                 "attorney_city": attorney_data["city"],
                 "attorney_state": attorney_data["state"],
                 "attorney_zip": attorney_data["zip"],
-                "descendent": case_data["descendent"],
-                "descendent_alias": case_data["descendent_alias"],
+                "decedent": case_data["decedent"],
+                "decedent_alias": case_data["decedent_alias"],
                 "item_url": case_data["item_url"],
             }
             master_data.append(row)  # Append to the master data list
@@ -509,8 +509,8 @@ def scrape_single(item_url):
             "attorney_city": attorney_data["city"],
             "attorney_state": attorney_data["state"],
             "attorney_zip": attorney_data["zip"],
-            "descendent": case_data["descendent"],
-            "descendent_alias": case_data["descendent_alias"],
+            "decedent": case_data["decedent"],
+            "decedent_alias": case_data["decedent_alias"],
             "item_url": case_data["item_url"],
         }
         master_data.append(row)  # Append to the master data list
