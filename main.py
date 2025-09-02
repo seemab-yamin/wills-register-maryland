@@ -5,7 +5,9 @@ from bs4 import BeautifulSoup
 import pandas as pd
 from datetime import datetime
 import time
+import pandera.pandas as pa
 
+from data_schemas import ProbateSchema
 from utils import get_parameters, get_html, scrape_page, scrape_single, setup_logging
 
 from PyQt5.QtCore import QDate
@@ -231,95 +233,80 @@ class MDScraperApp(QMainWindow):
             }
 
             df.rename(columns=column_rename, inplace=True)
-            df["Date of Death"] = pd.to_datetime(df["Date of Death"], errors="coerce")
-            df["Date of Death"] = df["Date of Death"].dt.strftime("%B %d,%Y")
+            df["Date of Death"] = pd.to_datetime(
+                df["Date of Death"], errors="coerce"
+            ).astype(str)
 
             final_columns = [
                 "Fiduciary Number",
                 "Court File Number",
-                "County",
+                "case_number",
+                "Estate Number",
+                "county_jurisdiction",
+                "date_of_filing",
+                "date_of_will",
+                "type",
+                "status",
+                "will",
                 "Decedent",
                 "Date of Death",
-                "Executor",
-                "Administrator",
-                "Proponent of Will",
-                "Subscriber",
-                "Heir 1",
+                "decedent_address",
+                "executor_first_name",
+                "executor_last_name",
+                "administrator_first_name",
+                "administrator_last_name",
+                "pow_first_name",
+                "pow_last_name",
+                "subscriber_first_name",
+                "subscriber_last_name",
+                "pr_first_name",
+                "pr_last_name",
+                "pr_address",
+                "pr_city",
+                "pr_state",
+                "pr_zip",
+                "heir_1_first_name",
+                "heir_1_last_name",
                 "Relationship 1",
                 "Age 1",
                 "Address 1",
-                "Heir 2",
-                "Relationship 2",
-                "Age 2",
-                "Address 2",
-                "Heir 3",
-                "Relationship 3",
-                "Age 3",
-                "Address 3",
-                "Heir 4",
-                "Relationship 4",
-                "Age 4",
-                "Address 4",
-                "Heir 5",
-                "Relationship 5",
-                "Age 5",
-                "Address 5",
-                "Heir 6",
-                "Relationship 6",
-                "Age 6",
-                "Address 6",
-                "Heir 7",
-                "Relationship 7",
-                "Age 7",
-                "Address 7",
-                "Heir 8",
-                "Relationship 8",
-                "Age 8",
-                "Address 8",
-                "Heir 9",
-                "Relationship 9",
-                "Age 9",
-                "Address 9",
-                "Heir 10",
-                "Relationship 10",
-                "Age 10",
-                "Address 10",
-                "Heir 11",
-                "Relationship 11",
-                "Age 11",
-                "Address 11",
-                "Heir 12",
-                "Relationship 12",
-                "Age 12",
-                "Address 12",
-                "Heir 13",
-                "Relationship 13",
-                "Age 13",
-                "Address 13",
-                "Heir 14",
-                "Relationship 14",
-                "Age 14",
-                "Address 14",
-                "Heir 15",
-                "Relationship 15",
-                "Age 15",
-                "Address 15",
-                "Heir 16",
-                "Relationship 16",
-                "Age 16",
-                "Address 16",
-                "Heir 17",
-                "Relationship 17",
-                "Age 17",
-                "Address 17",
+                "City 1",
+                "State 1",
+                "Zip 1",
+                "attorney_first_name",
+                "attorney_last_name",
+                "attorney_address",
+                "attorney_city",
+                "attorney_state",
+                "attorney_zip",
+                "url",
+                "aggregated",
             ]
             missing_columns = set(final_columns) - set(df.columns)
             if missing_columns:
                 # add missing columns with NaN values
                 for col in missing_columns:
-                    df[col] = pd.NA
+                    df[col] = ""
 
             df = df[final_columns]
+            df["Age 1"] = pd.to_numeric(df["Age 1"], errors="coerce").astype("Int64")
+            for col in df.columns:
+                if "zip" in col.lower():
+                    df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+
+            df["Date of Death"] = pd.to_datetime(df["Date of Death"], errors="coerce")
+
+            df.columns = [col.lower().replace(" ", "_") for col in df.columns]
+
+            df["court_file_number"] = df["court_file_number"].astype(str).str.zfill(6)
+            # Validate the DataFrame against the shared schema
+            try:
+                ProbateSchema.validate(df, lazy=True)
+                logger.info("DataFrame validation successful!")
+            except pa.errors.SchemaErrors as e:
+                logger.error("DataFrame validation failed! %s", e.failure_cases)
+                logger.error(f"DataFrame validation failed for file '{filename}': {e}")
+
             df.to_excel(output_path, index=False)
             self.logger.info(f"Excel file generated successfully: {output_path}")
             info_text = f"Excel generated successfully at:\n{output_path}"
