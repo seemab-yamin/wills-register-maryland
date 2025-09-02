@@ -5,7 +5,9 @@ from bs4 import BeautifulSoup
 import pandas as pd
 from datetime import datetime
 import time
+import pandera.pandas as pa
 
+from data_schemas import ProbateSchema
 from utils import get_parameters, get_html, scrape_page, scrape_single, setup_logging
 
 from PyQt5.QtCore import QDate
@@ -60,6 +62,7 @@ class MDScraperApp(QMainWindow):
         from_layout.addWidget(QLabel("From Date:"))
         self.from_date = QDateEdit()
         self.from_date.setCalendarPopup(True)
+        self.from_date.setDisplayFormat("MM/dd/yyyy")
         self.from_date.setDate(QDate.currentDate().addMonths(-1))
         from_layout.addWidget(self.from_date)
 
@@ -68,6 +71,7 @@ class MDScraperApp(QMainWindow):
         to_layout.addWidget(QLabel("To Date:"))
         self.to_date = QDateEdit()
         self.to_date.setCalendarPopup(True)
+        self.to_date.setDisplayFormat("MM/dd/yyyy")
         self.to_date.setDate(QDate.currentDate())
         to_layout.addWidget(self.to_date)
 
@@ -221,6 +225,88 @@ class MDScraperApp(QMainWindow):
             output_path = os.path.join(self.dir_input.text(), filename)
 
             df = pd.DataFrame(master_list)
+            column_rename = {
+                "case": "Court File Number",
+                "county": "County",
+                "date_of_death": "Date of Death",
+                "decedent": "Decedent",
+            }
+
+            df.rename(columns=column_rename, inplace=True)
+            df["Date of Death"] = pd.to_datetime(
+                df["Date of Death"], errors="coerce"
+            ).astype(str)
+
+            final_columns = [
+                "Fiduciary Number",
+                "Court File Number",
+                "case_number",
+                "Estate Number",
+                "county_jurisdiction",
+                "date_of_filing",
+                "date_of_will",
+                "type",
+                "status",
+                "will",
+                "Decedent",
+                "Date of Death",
+                "decedent_address",
+                "executor_first_name",
+                "executor_last_name",
+                "administrator_first_name",
+                "administrator_last_name",
+                "pow_first_name",
+                "pow_last_name",
+                "subscriber_first_name",
+                "subscriber_last_name",
+                "pr_first_name",
+                "pr_last_name",
+                "pr_address",
+                "pr_city",
+                "pr_state",
+                "pr_zip",
+                "heir_1_first_name",
+                "heir_1_last_name",
+                "Relationship 1",
+                "Age 1",
+                "Address 1",
+                "City 1",
+                "State 1",
+                "Zip 1",
+                "attorney_first_name",
+                "attorney_last_name",
+                "attorney_address",
+                "attorney_city",
+                "attorney_state",
+                "attorney_zip",
+                "url",
+                "aggregated",
+            ]
+            missing_columns = set(final_columns) - set(df.columns)
+            if missing_columns:
+                # add missing columns with NaN values
+                for col in missing_columns:
+                    df[col] = ""
+
+            df = df[final_columns]
+            df["Age 1"] = pd.to_numeric(df["Age 1"], errors="coerce").astype("Int64")
+            for col in df.columns:
+                if "zip" in col.lower():
+                    df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+
+            df["Date of Death"] = pd.to_datetime(df["Date of Death"], errors="coerce")
+
+            df.columns = [col.lower().replace(" ", "_") for col in df.columns]
+
+            df["court_file_number"] = df["court_file_number"].astype(str).str.zfill(6)
+            # Validate the DataFrame against the shared schema
+            try:
+                ProbateSchema.validate(df, lazy=True)
+                logger.info("DataFrame validation successful!")
+            except pa.errors.SchemaErrors as e:
+                logger.error("DataFrame validation failed! %s", e.failure_cases)
+                logger.error(f"DataFrame validation failed for file '{filename}': {e}")
+
             df.to_excel(output_path, index=False)
             self.logger.info(f"Excel file generated successfully: {output_path}")
             info_text = f"Excel generated successfully at:\n{output_path}"
@@ -267,6 +353,8 @@ class MDScraperApp(QMainWindow):
             )
             counter += 1
 
+        # TODO
+        case_urls = list(case_urls)[:5]
         self.logger.info(f"Total case URLs collected: {len(case_urls)}")
         master_list = []
         total = len(case_urls)
