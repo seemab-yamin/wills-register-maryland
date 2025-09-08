@@ -4,3 +4,4 @@ pandas
 openpyxl
 pandera
 auto-py-to-exe
+PyQt5
