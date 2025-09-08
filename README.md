@@ -3,6 +3,7 @@ Wills Register - Maryland is a project that involves the development and buildin
 
 # TODO
 - MM/DD/YYYY ✔️
-- Exe Generation 
+- Demo Exe Generation ✔️
+- Complete Exe Generation ✔️
 - Reformat ✔️
 - Update the output format ✔️
