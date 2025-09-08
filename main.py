@@ -1,15 +1,12 @@
+import logging
 import os
 import sys
-import logging
-from bs4 import BeautifulSoup
-import pandas as pd
-from datetime import datetime
 import time
+from datetime import datetime
+
+import pandas as pd
 import pandera.pandas as pa
-
-from data_schemas import ProbateSchema
-from utils import get_parameters, get_html, scrape_page, scrape_single, setup_logging
-
+from bs4 import BeautifulSoup
 from PyQt5.QtCore import QDate
 from PyQt5.QtWidgets import (
     QApplication,
@@ -25,6 +22,9 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from data_schemas import ProbateSchema
+from utils import get_html, get_parameters, scrape_page, scrape_single, setup_logging
 
 
 class MDScraperApp(QMainWindow):
@@ -220,36 +220,27 @@ class MDScraperApp(QMainWindow):
         # Scrape the data
         master_list = self.scraping(self.date_from, self.date_to, self.party_type)
         if master_list:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"Estates_Data_{self.date_from.replace('/', '-')}_{self.date_to.replace('/', '-')}_{self.party_type.replace(' ', '_')}_{timestamp}.xlsx"
+            date = datetime.now().strftime("%m%d%Y_%H%M%S")
+            filename = f"MD Probate Extracted Data_{date}.xlsx"
             output_path = os.path.join(self.dir_input.text(), filename)
 
             df = pd.DataFrame(master_list)
-            column_rename = {
-                "case": "Court File Number",
-                "county": "County",
-                "date_of_death": "Date of Death",
-                "decedent": "Decedent",
-            }
 
-            df.rename(columns=column_rename, inplace=True)
-            df["Date of Death"] = pd.to_datetime(
-                df["Date of Death"], errors="coerce"
-            ).astype(str)
+            df.columns = [col.lower().replace(" ", "_") for col in df.columns]
 
             final_columns = [
-                "Fiduciary Number",
-                "Court File Number",
+                "fiduciary_number",
+                "court_file_number",
+                "estate_number",
                 "case_number",
-                "Estate Number",
                 "county_jurisdiction",
                 "date_of_filing",
                 "date_of_will",
                 "type",
                 "status",
                 "will",
-                "Decedent",
-                "Date of Death",
+                "decedent",
+                "date_of_death",
                 "decedent_address",
                 "executor_first_name",
                 "executor_last_name",
@@ -267,12 +258,12 @@ class MDScraperApp(QMainWindow):
                 "pr_zip",
                 "heir_1_first_name",
                 "heir_1_last_name",
-                "Relationship 1",
-                "Age 1",
-                "Address 1",
-                "City 1",
-                "State 1",
-                "Zip 1",
+                "relationship_1",
+                "age_1",
+                "address_1",
+                "city_1",
+                "state_1",
+                "zip_1",
                 "attorney_first_name",
                 "attorney_last_name",
                 "attorney_address",
@@ -288,21 +279,32 @@ class MDScraperApp(QMainWindow):
                 for col in missing_columns:
                     df[col] = ""
 
-            df = df[final_columns]
-            df["Age 1"] = pd.to_numeric(df["Age 1"], errors="coerce").astype("Int64")
+            df["age_1"] = pd.to_numeric(df["age_1"], errors="coerce").astype("Int64")
             for col in df.columns:
                 if "zip" in col.lower():
                     df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
 
-            df["Date of Death"] = pd.to_datetime(df["Date of Death"], errors="coerce")
+            df["date_of_death"] = pd.to_datetime(df["date_of_death"], errors="coerce")
 
-            df.columns = [col.lower().replace(" ", "_") for col in df.columns]
+            # Populate Aggregate column with column:value;column:value;column:value;
+            def aggregate_row(row):
+                return (
+                    ";".join(
+                        f"{col}:{row[col] if pd.notnull(row[col]) and row[col] != '' else ''}"
+                        for col in df.columns
+                        if col != "aggregated"
+                    )
+                    + ";"
+                )
 
-            df["court_file_number"] = df["court_file_number"].astype(str).str.zfill(6)
+            df["aggregated"] = df.apply(aggregate_row, axis=1)
+
+            df = df[final_columns]
             # Validate the DataFrame against the shared schema
             try:
                 ProbateSchema.validate(df, lazy=True)
                 logger.info("DataFrame validation successful!")
+                df.columns = [col.title().replace("_", " ") for col in df.columns]
             except pa.errors.SchemaErrors as e:
                 logger.error("DataFrame validation failed! %s", e.failure_cases)
                 logger.error(f"DataFrame validation failed for file '{filename}': {e}")
@@ -353,8 +355,6 @@ class MDScraperApp(QMainWindow):
             )
             counter += 1
 
-        # TODO
-        case_urls = list(case_urls)[:5]
         self.logger.info(f"Total case URLs collected: {len(case_urls)}")
         master_list = []
         total = len(case_urls)

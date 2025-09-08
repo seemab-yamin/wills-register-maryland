@@ -317,31 +317,39 @@ def scrape_page(parameters, case_urls, date_from, date_to, party_type, counter):
 def get_element_text(soup, selector):
     """Safely finds an element by CSS selector and returns its stripped text."""
     element = soup.select_one(selector)
-    return element.get_text(strip=True) if element else ""
+    if element:
+        text = element.get_text(strip=True)
+        # Remove extra whitespace and newline characters using regex
+        return re.sub(r"\s+", " ", text).strip()
+    return ""
 
 
-def get_location_parts(location_string):
-    """Parses a location string into address, city, state, and zip."""
-    parts = {"address": "", "city": "", "state": "", "zip": ""}
+def get_location_parts(location_string, address_key, city_key, state_key, zip_key):
+    """Parses a location string into pr_address, city, state, and zip."""
+    parts = dict.fromkeys([address_key, city_key, state_key, zip_key])
     if not location_string:
         return parts
 
     # Regex to find State and ZIP (e.g., MD 21201)
     state_zip_match = re.search(r"([A-Z]{2})\s+(\d{5}(?:-\d{4})?)", location_string)
     if state_zip_match:
-        parts["state"] = state_zip_match.group(1)
-        parts["zip"] = state_zip_match.group(2)
+        parts[state_key] = state_zip_match.group(1)
+        parts[zip_key] = state_zip_match.group(2)
+        if "-" in parts[zip_key]:
+            parts[zip_key] = parts[zip_key].split("-")[
+                0
+            ]  # Keep only the first 5 digits
         # City is whatever comes before the state and zip
         city_part = location_string[: state_zip_match.start()].strip()
         if city_part.endswith(","):
-            parts["city"] = city_part[:-1].strip()
+            parts[city_key] = city_part[:-1].strip()
         else:
-            parts["city"] = city_part
+            parts[city_key] = city_part
         # Address is not clearly separated, often missing, so we'll leave it blank
         # as it's not present in the small tag.
     else:
         # Fallback if regex fails
-        parts["address"] = location_string
+        parts[address_key] = location_string
 
     return parts
 
@@ -362,72 +370,70 @@ def scrape_single(item_url):
     raw_html = get_html(item_url)
     if not raw_html:
         logger.error(f"Failed to fetch HTML for {item_url}")
-        return {
-            "case": "",
-            "time": "",
-            "date_of_death": "",
-            "type": "",
-            "status": "",
-            "county": "",
-            "pr_first": "",
-            "pr_middle": "",
-            "pr_last": "",
-            "pr_address": "",
-            "pr_city": "",
-            "pr_state": "",
-            "pr_zip": "",
-            "attorney_first_name": "",
-            "attorney_last_name": "",
-            "attorney_address": "",
-            "attorney_city": "",
-            "attorney_state": "",
-            "attorney_zip": "",
-            "decedent": "",
-            "decedent_alias": "",
-            "item_url": "",
-        }
+        return []
     soup = BeautifulSoup(raw_html, "html.parser")
 
     # --- 1. Extract Common Information ---
     case_data = {
-        "case": get_element_text(soup, "#lblEstateNumber"),
-        "time": get_element_text(soup, "#lblDateOpened"),
-        "date_of_death": get_element_text(soup, "#lblDateOfDeath"),
+        "case_number": "",
+        "estate_number": get_element_text(soup, "#lblEstateNumber"),
+        "county_jurisdiction": get_element_text(soup, "td:contains('Estate Record')"),
+        "date_of_filing": get_element_text(soup, "#lblDateOfFiling"),
+        "date_of_will": get_element_text(soup, "#lblDateOfWill"),
+        # "time": get_element_text(soup, "#lblDateOpened"),
         "type": get_element_text(soup, "#lblType"),
         "status": get_element_text(soup, "#lblStatus"),
+        "will": get_element_text(soup, "#lblWill"),
         "decedent": get_element_text(soup, "#lblName"),
-        "decedent_alias": get_element_text(soup, "#lblAliases"),
-        "item_url": item_url,
+        "date_of_death": get_element_text(soup, "#lblDateOfDeath"),
+        "decedent_address": "",
+        "executor_first_name": "",
+        "executor_last_name": "",
+        "administrator_first_name": "",
+        "administrator_last_name": "",
+        "pow_first_name": "",
+        "pow_last_name": "",
+        "subscriber_first_name": "",
+        "subscriber_last_name": "",
+        # "decedent_alias": get_element_text(soup, "#lblAliases"),
+        "url": item_url,
     }
 
     # Extract County
-    county_temp = get_element_text(soup, ".search-header-container td")
-    if "(" in county_temp:
-        county_part = county_temp.split("(")[1]
-        case_data["county"] = (
+    if case_data.get("county_jurisdiction"):
+        county_part = case_data["county_jurisdiction"].split("(")[1]
+        case_data["county_jurisdiction"] = (
             county_part.replace("County)", "").replace(")", "").strip()
         )
     else:
-        case_data["county"] = ""
+        case_data["county_jurisdiction"] = ""
 
     # --- 2. Extract Attorney Information ---
     attorney_data = {
-        "first_name": "",
-        "last_name": "",
-        "address": "",
-        "city": "",
-        "state": "",
-        "zip": "",
+        "attorney_first_name": "",
+        "attorney_ last_name": "",
+        "attorney_address": "",
+        "attorney_city": "",
+        "attorney_state": "",
+        "attorney_zip": "",
     }
     attorney_name = get_element_text(soup, "#lblAttorney")
     if attorney_name:
         name_parts = attorney_name.split("[")[0].strip().split()
         if len(name_parts) >= 2:
-            attorney_data["first_name"] = name_parts[0]
-            attorney_data["last_name"] = name_parts[-1]  # Use last part for robustness
+            attorney_data["attorney_first_name"] = name_parts[0]
+            attorney_data["attorney_last_name"] = name_parts[
+                -1
+            ]  # Use last part for robustness
 
         attorney_location_str = get_element_text(soup, "#lblAttorney small")
-        loc_parts = get_location_parts(attorney_location_str)
+        loc_parts = get_location_parts(
+            attorney_location_str,
+            "attorney_address",
+            "attorney_city",
+            "attorney_state",
+            "attorney_zip",
+        )
         attorney_data.update(loc_parts)
 
     reps_container = soup.select_one("#lblPersonalReps")
@@ -445,73 +451,39 @@ def scrape_single(item_url):
             # Personal Rep Name Parsing
             name_str = rep_soup.get_text(strip=True).split("[")[0].strip()
             name_parts = name_str.split()
-            pr_first, pr_middle, pr_last = "", "", ""
+            pr_first_name, pr_middle_name, pr_last_name = "", "", ""
             if len(name_parts) > 2:
-                pr_first, pr_middle, pr_last = (
+                pr_first_name, pr_middle_name, pr_last_name = (
                     name_parts[0],
                     name_parts[1],
                     " ".join(name_parts[2:]),
                 )
             elif len(name_parts) == 2:
-                pr_first, pr_last = name_parts[0], name_parts[1]
+                pr_first_name, pr_last_name = name_parts[0], name_parts[1]
             elif len(name_parts) == 1:
-                pr_first = name_parts[0]
+                pr_first_name = name_parts[0]
 
             # Personal Rep Location Parsing
             pr_loc_str = get_element_text(rep_soup, "small")
-            pr_loc_parts = get_location_parts(pr_loc_str)
+            pr_loc_parts = get_location_parts(
+                pr_loc_str, "pr_address", "pr_city", "pr_state", "pr_zip"
+            )
 
             # Write one row per representative
             row = {
-                "case": case_data["case"],
-                "time": case_data["time"],
-                "date_of_death": case_data["date_of_death"],
-                "type": case_data["type"],
-                "status": case_data["status"],
-                "county": case_data["county"],
-                "pr_first": pr_first,
-                "pr_middle": pr_middle,
-                "pr_last": pr_last,
-                "pr_address": pr_loc_parts["address"],
-                "pr_city": pr_loc_parts["city"],
-                "pr_state": pr_loc_parts["state"],
-                "pr_zip": pr_loc_parts["zip"],
-                "attorney_first_name": attorney_data["first_name"],
-                "attorney_last_name": attorney_data["last_name"],
-                "attorney_address": attorney_data["address"],
-                "attorney_city": attorney_data["city"],
-                "attorney_state": attorney_data["state"],
-                "attorney_zip": attorney_data["zip"],
-                "decedent": case_data["decedent"],
-                "decedent_alias": case_data["decedent_alias"],
-                "item_url": case_data["item_url"],
+                **case_data,
+                "pr_first_name": pr_first_name,
+                "pr_middle_name": pr_middle_name,
+                "pr_last_name": pr_last_name,
+                **pr_loc_parts,
+                **attorney_data,
             }
             master_data.append(row)  # Append to the master data list
     else:
         # If no reps are found, write a single line with available info
         row = {
-            "case": case_data["case"],
-            "time": case_data["time"],
-            "date_of_death": case_data["date_of_death"],
-            "type": case_data["type"],
-            "status": case_data["status"],
-            "county": case_data["county"],
-            "pr_first": "",
-            "pr_middle": "",
-            "pr_last": "",
-            "pr_address": "",
-            "pr_city": "",
-            "pr_state": "",
-            "pr_zip": "",
-            "attorney_first_name": attorney_data["first_name"],
-            "attorney_last_name": attorney_data["last_name"],
-            "attorney_address": attorney_data["address"],
-            "attorney_city": attorney_data["city"],
-            "attorney_state": attorney_data["state"],
-            "attorney_zip": attorney_data["zip"],
-            "decedent": case_data["decedent"],
-            "decedent_alias": case_data["decedent_alias"],
-            "item_url": case_data["item_url"],
+            **case_data,
+            **attorney_data,
         }
         master_data.append(row)  # Append to the master data list
 
