@@ -623,13 +623,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--date-from",
-        required=True,
         type=str,
         help="Set the from date.",
     )
     parser.add_argument(
         "--date-to",
-        required=True,
         type=str,
         help="Set the to date.",
     )
@@ -655,6 +653,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
     # validate headless
     if args.headless:
+        if not args.date_from or not args.date_to:
+            logger.error(
+                "Both --date-from and --date-to must be specified in headless mode."
+            )
+            sys.exit(1)
+
         app = MDScraperCli(
             date_from=args.date_from,
             date_to=args.date_to,
