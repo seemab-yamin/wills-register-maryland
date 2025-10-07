@@ -336,9 +336,9 @@ def get_location_parts(location_string, address_key, city_key, state_key, zip_ke
         parts[state_key] = state_zip_match.group(1)
         parts[zip_key] = state_zip_match.group(2)
         if "-" in parts[zip_key]:
-            parts[zip_key] = parts[zip_key].split("-")[
-                0
-            ]  # Keep only the first 5 digits
+            parts[zip_key] = str(
+                parts[zip_key].split("-")[0]
+            )  # Keep only the first 5 digits
         # City is whatever comes before the state and zip
         city_part = location_string[: state_zip_match.start()].strip()
         if city_part.endswith(","):
@@ -351,17 +351,25 @@ def get_location_parts(location_string, address_key, city_key, state_key, zip_ke
         # Fallback if regex fails
         parts[address_key] = location_string
 
+    # split the city into address and city using last comma if city exists and has comma
+    if parts.get(city_key):
+        address_city = parts[city_key].split(",", -1)
+        if len(address_city) >= 2:
+            parts[address_key] = ",".join(address_city[:-1])
+            parts[city_key] = address_city[-1].strip()
     return parts
 
 
 def scrape_single(item_url):
     """
     Scrapes a single estate detail page, extracts all information,
-    and appends it as one or more rows to a CSV file.
+    and returns structured data with the new field names.
 
     Args:
         item_url (str): The URL of the detail page to scrape.
-        output_filepath (str): The path to the CSV file to append data to.
+
+    Returns:
+        list: A list of dictionaries containing the scraped data with updated field names.
     """
     logger = logging.getLogger(__name__)
     logger.debug(f"Scraping single item: {item_url}")

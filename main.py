@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import sys
@@ -26,10 +27,17 @@ from PyQt5.QtWidgets import (
 from data_schemas import ProbateSchema
 from utils import get_html, get_parameters, scrape_page, scrape_single, setup_logging
 
+PARTY_TYPES = {
+    "pr": "Personal Representative",
+    "d": "Decedent",
+}
+
 
 class MDScraperApp(QMainWindow):
-    def __init__(self):
+
+    def __init__(self, record_limit=None):
         super().__init__()
+        self.record_limit = record_limit
         self.setWindowTitle("Wills Register Maryland Scraper")
         self.setFixedSize(500, 300)
         self._close_enabled = True
@@ -60,20 +68,20 @@ class MDScraperApp(QMainWindow):
         # From date
         from_layout = QVBoxLayout()
         from_layout.addWidget(QLabel("From Date:"))
-        self.from_date = QDateEdit()
-        self.from_date.setCalendarPopup(True)
-        self.from_date.setDisplayFormat("MM/dd/yyyy")
-        self.from_date.setDate(QDate.currentDate().addMonths(-1))
-        from_layout.addWidget(self.from_date)
+        self.date_from = QDateEdit()
+        self.date_from.setCalendarPopup(True)
+        self.date_from.setDisplayFormat("MM/dd/yyyy")
+        self.date_from.setDate(QDate.currentDate().addMonths(-1))
+        from_layout.addWidget(self.date_from)
 
         # To date
         to_layout = QVBoxLayout()
         to_layout.addWidget(QLabel("To Date:"))
-        self.to_date = QDateEdit()
-        self.to_date.setCalendarPopup(True)
-        self.to_date.setDisplayFormat("MM/dd/yyyy")
-        self.to_date.setDate(QDate.currentDate())
-        to_layout.addWidget(self.to_date)
+        self.date_to = QDateEdit()
+        self.date_to.setCalendarPopup(True)
+        self.date_to.setDisplayFormat("MM/dd/yyyy")
+        self.date_to.setDate(QDate.currentDate())
+        to_layout.addWidget(self.date_to)
 
         date_layout.addLayout(from_layout)
         date_layout.addLayout(to_layout)
@@ -94,9 +102,9 @@ class MDScraperApp(QMainWindow):
         output_layout.addWidget(QLabel("Output Directory:"))
 
         dir_layout = QHBoxLayout()
-        self.dir_input = QLineEdit()
-        self.dir_input.setReadOnly(True)
-        dir_layout.addWidget(self.dir_input)
+        self.output_dir = QLineEdit()
+        self.output_dir.setReadOnly(True)
+        dir_layout.addWidget(self.output_dir)
 
         self.browse_btn = QPushButton("Browse...")
         self.browse_btn.clicked.connect(self.select_directory)
@@ -175,20 +183,20 @@ class MDScraperApp(QMainWindow):
             QFileDialog.ShowDirsOnly,
         )
         if directory:
-            self.dir_input.setText(directory)
+            self.output_dir.setText(directory)
             self.logger.info(f"Selected output directory: {directory}")
         else:
             self.logger.debug("No directory selected")
 
     def validate_inputs(self):
-        if not self.dir_input.text():
+        if not self.output_dir.text():
             self.logger.warning("Validation failed: No output directory selected")
             QMessageBox.warning(
                 self, "Missing Directory", "Please select an output directory"
             )
             return False
 
-        if self.from_date.date() > self.to_date.date():
+        if self.date_from.date() > self.date_to.date():
             self.logger.warning("Validation failed: Invalid date range")
             QMessageBox.warning(
                 self, "Invalid Date Range", "From date cannot be after To date"
@@ -209,8 +217,8 @@ class MDScraperApp(QMainWindow):
         self.reset_btn.setEnabled(False)
 
         # Gather data using variables as strings
-        self.date_from = self.from_date.date().toString("MM/dd/yyyy")
-        self.date_to = self.to_date.date().toString("MM/dd/yyyy")
+        self.date_from = self.date_from.date().toString("MM/dd/yyyy")
+        self.date_to = self.date_to.date().toString("MM/dd/yyyy")
         self.party_type = self.doc_type.currentText()
 
         self.logger.info(
@@ -218,11 +226,13 @@ class MDScraperApp(QMainWindow):
         )
 
         # Scrape the data
-        master_list = self.scraping(self.date_from, self.date_to, self.party_type)
+        master_list = self.scraping(
+            self.date_from, self.date_to, self.party_type, self.record_limit
+        )
         if master_list:
             date = datetime.now().strftime("%m%d%Y_%H%M%S")
             filename = f"MD Probate Extracted Data_{date}.xlsx"
-            output_path = os.path.join(self.dir_input.text(), filename)
+            output_path = os.path.join(self.output_dir.text(), filename)
 
             df = pd.DataFrame(master_list)
 
@@ -304,7 +314,14 @@ class MDScraperApp(QMainWindow):
             try:
                 ProbateSchema.validate(df, lazy=True)
                 logger.info("DataFrame validation successful!")
-                df.columns = [col.title().replace("_", " ") for col in df.columns]
+                # Construct PR Columns
+                new_columns = []
+                for col in df.columns:
+                    new_col = col.title().replace("_", " ")
+                    if "pr " in new_col.lower():
+                        new_col = new_col.replace("Pr ", "PR ")
+                    new_columns.append(new_col)
+                df.columns = new_columns
             except pa.errors.SchemaErrors as e:
                 logger.error("DataFrame validation failed! %s", e.failure_cases)
                 logger.error(f"DataFrame validation failed for file '{filename}': {e}")
@@ -331,7 +348,7 @@ class MDScraperApp(QMainWindow):
         self.reset_btn.setEnabled(True)
         self.logger.info("Scraping process completed")
 
-    def scraping(self, date_from, date_to, party_type):
+    def scraping(self, date_from, date_to, party_type, record_limit):
         self.logger.info("Starting scraping operation")
         counter = 1
         url = "https://registers.maryland.gov/RowNetWeb/Estates/frmEstateSearch2.aspx"
@@ -355,9 +372,11 @@ class MDScraperApp(QMainWindow):
             )
             counter += 1
 
-        self.logger.info(f"Total case URLs collected: {len(case_urls)}")
-        master_list = []
+        if record_limit:
+            case_urls = list(case_urls)[:record_limit]
         total = len(case_urls)
+        self.logger.info(f"Total case URLs collected: {total}")
+        master_list = []
 
         for idx, url in enumerate(case_urls, 1):
             self.logger.info(f"Processing {idx} of {total}: {url}")
@@ -373,14 +392,14 @@ class MDScraperApp(QMainWindow):
     def reset_form(self):
         self.logger.info("Resetting form to default values")
         # Reset date fields
-        self.from_date.setDate(QDate.currentDate().addMonths(-1))
-        self.to_date.setDate(QDate.currentDate())
+        self.date_from.setDate(QDate.currentDate().addMonths(-1))
+        self.date_to.setDate(QDate.currentDate())
 
         # Reset document type
         self.doc_type.setCurrentIndex(0)
 
         # Clear directory
-        self.dir_input.clear()
+        self.output_dir.clear()
 
         # Re-enable close and exit after reset
         self.set_close_enabled(True)
@@ -389,14 +408,265 @@ class MDScraperApp(QMainWindow):
         self.logger.info("Form reset completed")
 
 
+class MDScraperCli:
+    def __init__(self, date_from, date_to, doc_type, output_dir, record_limit=None):
+
+        # Setup logging for this application
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("MDScraperApp initialized")
+
+        # From date
+        self.date_from_str = date_from
+        self.date_from_obj = datetime.strptime(self.date_from_str, "%m/%d/%Y")
+
+        # To date
+        self.date_to_str = date_to
+        self.date_to_obj = datetime.strptime(self.date_to_str, "%m/%d/%Y")
+
+        self.doc_type = doc_type
+        self.output_dir = output_dir
+        self.party_type = PARTY_TYPES[self.doc_type]
+
+        self.record_limit = record_limit
+
+    def validate_inputs(self):
+        if not self.output_dir:
+            self.logger.warning("Validation failed: No output directory selected")
+            QMessageBox.warning(
+                self, "Missing Directory", "Please select an output directory"
+            )
+            return False
+
+        if self.date_from_obj > self.date_to_obj:
+            self.logger.warning("Validation failed: Invalid date range")
+            QMessageBox.warning(
+                self, "Invalid Date Range", "From date cannot be after To date"
+            )
+            return False
+
+        self.logger.debug("Input validation passed")
+        return True
+
+    def start_process(self):
+        self.logger.info("Starting scraping process")
+        if not self.validate_inputs():
+            return
+
+        self.logger.info(
+            f"Scraping parameters - Date range: {self.date_from_str} to {self.date_to_str}, Party type: {self.party_type}"
+        )
+
+        # Scrape the data
+        master_list = self.scraping(
+            self.date_from_str, self.date_to_str, self.party_type, self.record_limit
+        )
+        if master_list:
+            date = datetime.now().strftime("%m%d%Y_%H%M%S")
+            filename = f"MD Probate Extracted Data_{date}.xlsx"
+            output_path = os.path.join(self.output_dir, filename)
+
+            df = pd.DataFrame(master_list)
+            df.columns = [col.lower().replace(" ", "_") for col in df.columns]
+
+            final_columns = [
+                "fiduciary_number",
+                "court_file_number",
+                "estate_number",
+                "case_number",
+                "county_jurisdiction",
+                "date_of_filing",
+                "date_of_will",
+                "type",
+                "status",
+                "will",
+                "decedent",
+                "date_of_death",
+                "decedent_address",
+                "executor_first_name",
+                "executor_last_name",
+                "administrator_first_name",
+                "administrator_last_name",
+                "pow_first_name",
+                "pow_last_name",
+                "subscriber_first_name",
+                "subscriber_last_name",
+                "pr_first_name",
+                "pr_last_name",
+                "pr_address",
+                "pr_city",
+                "pr_state",
+                "pr_zip",
+                "heir_1_first_name",
+                "heir_1_last_name",
+                "relationship_1",
+                "age_1",
+                "address_1",
+                "city_1",
+                "state_1",
+                "zip_1",
+                "attorney_first_name",
+                "attorney_last_name",
+                "attorney_address",
+                "attorney_city",
+                "attorney_state",
+                "attorney_zip",
+                "url",
+                "aggregated",
+            ]
+            missing_columns = set(final_columns) - set(df.columns)
+            if missing_columns:
+                # add missing columns with NaN values
+                for col in missing_columns:
+                    df[col] = ""
+
+            df["age_1"] = pd.to_numeric(df["age_1"], errors="coerce").astype("Int64")
+            for col in df.columns:
+                if "zip" in col.lower():
+                    df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+
+            df["date_of_death"] = pd.to_datetime(df["date_of_death"], errors="coerce")
+
+            # Populate Aggregate column with column:value;column:value;column:value;
+            def aggregate_row(row):
+                return (
+                    ";".join(
+                        f"{col}:{row[col] if pd.notnull(row[col]) and row[col] != '' else ''}"
+                        for col in df.columns
+                        if col != "aggregated"
+                    )
+                    + ";"
+                )
+
+            df["aggregated"] = df.apply(aggregate_row, axis=1)
+
+            df = df[final_columns]
+
+            # Validate the DataFrame against the shared schema
+            try:
+                ProbateSchema.validate(df, lazy=True)
+                logger.info("DataFrame validation successful!")
+                # Construct PR Columns
+                new_columns = []
+                for col in df.columns:
+                    new_col = col.title().replace("_", " ")
+                    if "pr " in new_col.lower():
+                        new_col = new_col.replace("Pr ", "PR ")
+                    new_columns.append(new_col)
+                df.columns = new_columns
+            except pa.errors.SchemaErrors as e:
+                logger.error("DataFrame validation failed! %s", e.failure_cases)
+                logger.error(f"DataFrame validation failed for file '{filename}': {e}")
+
+            df.to_excel(output_path, index=False)
+            self.logger.info(f"Excel file generated successfully: {output_path}")
+        else:
+            self.logger.error(
+                "Scraping failed. Please check your internet connection and try again."
+            )
+        self.logger.info("Scraping process completed")
+
+    def scraping(self, date_from, date_to, party_type, record_limit):
+        self.logger.info("Starting scraping operation")
+        counter = 1
+        url = "https://registers.maryland.gov/RowNetWeb/Estates/frmEstateSearch2.aspx"
+        raw_html = get_html(url)
+        if not raw_html:
+            self.logger.error("Failed to make request for fetching parameters")
+            return []
+        soup = BeautifulSoup(raw_html, "html.parser")
+        parameters = get_parameters(soup, counter)
+        case_urls = set()
+
+        new_parameters, case_urls = scrape_page(
+            parameters, case_urls, date_from, date_to, party_type, counter
+        )
+        counter += 1
+
+        while new_parameters:
+            self.logger.debug(f"Processing page {counter}")
+            new_parameters, case_urls = scrape_page(
+                new_parameters, case_urls, date_from, date_to, party_type, counter
+            )
+            counter += 1
+
+        if record_limit:
+            case_urls = list(case_urls)[:record_limit]
+        total = len(case_urls)
+        self.logger.info(f"Total case URLs collected: {total}")
+        master_list = []
+
+        for idx, url in enumerate(case_urls, 1):
+            self.logger.info(f"Processing {idx} of {total}: {url}")
+            master_list.extend(scrape_single(url))
+            time.sleep(0.5)
+            # Log current progress percentage
+            progress = int((idx / total) * 100)
+            self.logger.debug(f"Progress: {progress}%")
+
+        self.logger.info(f"Scraping completed - {len(master_list)} records collected")
+        return master_list
+
+
 if __name__ == "__main__":
     # Setup logging before creating the application
     setup_logging()
     logger = logging.getLogger(__name__)
     logger.info("Starting MDScraperApp")
 
-    app = QApplication(sys.argv)
-    window = MDScraperApp()
-    window.show()
-    logger.info("Application window displayed")
-    sys.exit(app.exec_())
+    # implement the logic to run in headless mode or GUI mode
+    parser = argparse.ArgumentParser(description="Wills Register Maryland Scraper")
+    parser.add_argument(
+        "--headless",
+        type=bool,
+        default=False,
+        help="Set the headless mode.",
+    )
+    parser.add_argument(
+        "--date-from",
+        required=True,
+        type=str,
+        help="Set the from date.",
+    )
+    parser.add_argument(
+        "--date-to",
+        required=True,
+        type=str,
+        help="Set the to date.",
+    )
+    parser.add_argument(
+        "--doc-type",
+        type=str,
+        default="pr",
+        help="Set the document type.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=".",
+        help="Set the output directory.",
+    )
+    parser.add_argument(
+        "--record-limit",
+        type=int,
+        default=0,
+        help="Set the record limit.",
+    )
+
+    args = parser.parse_args()
+    # validate headless
+    if args.headless:
+        app = MDScraperCli(
+            date_from=args.date_from,
+            date_to=args.date_to,
+            doc_type=args.doc_type,
+            output_dir=args.output_dir,
+            record_limit=args.record_limit if args.record_limit > 0 else None,
+        )
+        app.start_process()
+        logger.info("Headless scraping process completed")
+    else:
+        app = QApplication(sys.argv)
+        window = MDScraperApp()
+        window.show()
+        logger.info("Application window displayed")
+        sys.exit(app.exec_())
